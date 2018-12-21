@@ -1,0 +1,53 @@
+Changes made to indent to make it work with MS-Dos:
+
+  Shortened file names.
+
+  Changed makefile to work with ndmake
+
+  #ifdef around include of <sys/param.h>.  This does not exist for
+  MSC system, so I put what is needed in MSDOS.H
+
+  Integrated my "config.h" and "typedefs.h" routines to try to back
+  away from machine and compiler dependencies.
+
+  Changed definition of allcaps in the "struct fstate" definition to
+  be a "bit" (from "typedefs.h").
+
+  Changed all "blanklines" (plural)  to "bl" to shorten variable names
+
+  Changed all "blankline" (singular) to "bl" to shorten variable names
+
+  Changed all "_declarations" to "dcl" to shorten variable names
+
+  Declared the "msg" parameter on the diag() routine in io.c to keep
+    parameter checking in MSC happy.
+
+  Added -tabs switch to args.c table.
+
+  Changed "tabsize" to be an integer rather than a #define.
+
+  Deleted tabmask and replaced with computations involving tabsize.
+
+  Added PROFILE_NAME to globs.h.  This names the indent profile file
+  (which differs from MS-Dos to unix).
+
+  Changed the way set_profile (args.c) looked for the profile file. 
+  Now if the HOME environment is not defined it looks in root.
+
+  Fixed problem in indent.c in which it became confused as to what
+  was or was not a comment.  This was do to a bad test on sc_end.
+
+
+
+Known bugs:
+
+  The following input will cause it to barf:
+
+			 -------------------
+char            copyright[] =
+"@(#) Copyright (c) 1985 Sun Microsystems, Inc.\n\
+ @(#) Copyright (c) 1980 The Regents of the University of California.\n\
+ @(#) Copyright (c) 1976 Board of Trustees of the University of Illinois.\n\
+ All rights reserved.\n";
+			 -------------------
+

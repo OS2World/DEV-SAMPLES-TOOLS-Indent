@@ -1,0 +1,23 @@
+indent is a program to format C and C++ code.  Via command-line switches
+or options stored in a profile you get a lot of control over the way
+the code is formatted.
+
+Source code only is provided.  Use the shar program previously uploaded
+to this system to unpack the shell archives into their component files.
+
+	shar -u indent1
+	shar -u indent2
+	shar -u indent3
+
+Everything finishes up in the same directory.  Run your favourite "make"
+utility using one of the makefiles provided.
+
+	makefile.cs2		is for IBM C Set/2
+	makefile.20		is for the Microsoft C386 compiler
+	makefile.1x		is for Microsoft C 6.0
+
+The last of these will generate a bound executable which will run under
+real MSDOS as well as in a DOS session under OS/2.
+
+jrs@panix.com (Jon Saxton)
+April 1992

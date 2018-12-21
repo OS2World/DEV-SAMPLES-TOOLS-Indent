@@ -1,0 +1,281 @@
+INDENT(1)		  USER COMMANDS			INDENT(1)
+
+
+
+NAME
+     indent - indent and format	C program source
+
+SYNOPSIS
+     indent  [ input-file  [  output-file  ]  ]	 [ -bad	| -nbad	]
+	    [ -bap | -nbap ]	[ -bbb | -nbbb ]   [ -bc | -nbc	]
+	    [ -bl ]  [ -br ]  [	-cn ]  [ -cdn ]	 [ -cdb	| -ncdb	]
+	    [ -ce | -nce ]  [ -cin ]  [	-clin ]	 [ -dn ] [ -din	]
+	    [ -fc1 | -nfc1 ]   [ -in ]	 [ -ip | -nip ]	  [ -ln	]
+	    [ -lcn ]  [	-lp | -nlp ]  [	-pcs | -npcs ]	[ -npro	]
+	    [ -psl | -npsl ]   [ -sc | -nsc ]	 [ -sob	| -nsob	]
+	    [ -st ] [ -tabsn ] [ -troff	] [ -v | -nv ]
+
+DESCRIPTION
+     Indent is a C program formatter.  It reformats the	C program
+     in	 the  input-file according to the switches.  The switches
+     which can be specified are	described below. They may  appear
+     before or after the file names.
+
+     NOTE: If you only specify an input-file, the  formatting  is
+     done `in-place', that is, the formatted file is written back
+     into input-file and a backup copy of input-file  is  written
+     in	  the	current	  directory.	If  input-file	is  named
+     `/blah/blah/file',	the backup file	is named file.BAK.
+
+     If	output-file is specified, indent checks	to make	 sure  it
+     is	different from input-file.
+
+OPTIONS
+     The  options  listed  below  control  the	formatting  style
+     imposed by	indent.
+
+     -bap,-nbap	    If -bap is specified, a blank line is  forced
+		    after every	procedure body.	 Default: -nbap.
+
+     -bad,-nbad	    If -bad is specified, a blank line is  forced
+		    after  every block of declarations.	 Default:
+		    -nbad.
+
+     -bbb,-nbbb	    If -bbb is specified, a blank line is  forced
+		    before every block comment.	 Default: -nbbb.
+
+     -bc,-nbc	    If -bc is specified, then a	newline	is forced
+		    after each comma in	a declaration. -nbc turns
+		    off	this option.  The default is -bc.
+
+     -br,-bl	    Specifying -bl lines up  compound  statements
+		    like this:
+			if (...)
+			{
+			    code
+			}
+
+INDENT(1)		  USER COMMANDS			INDENT(1)
+
+
+
+		    Specifying -br (the	default) makes them  look
+		    like this:
+			if (...) {
+			    code
+			}
+
+     -cn	    The	column in which	comments on  code  start.
+		    The	default	is 33.
+
+     -cdn	    The	column in which	comments on  declarations
+		    start.   The default is for	these comments to
+		    start in the same column as	those on code.
+
+     -cdb,-ncdb	    Enables (disables) the placement  of  comment
+		    delimiters	on blank lines.	 With this option
+		    enabled, comments look like	this:
+			 /*
+			  * this is a comment
+			  */
+		    Rather than	like this:
+			 /* this is a comment */
+		    This only affects block  comments,	not  com-
+		    ments  to  the  right of code. The default is
+		    -cdb .
+
+     -ce,-nce	    Enables (disables) forcing `else's to  cuddle
+		    up	to  the	 immediatly  preceeding	`}'.  The
+		    default is -ce .
+
+     -cin	    Sets the continuation indent to be	n.   Con-
+		    tinuation  lines  will  be	indented that far
+		    from the beginning of the first line  of  the
+		    statement.	 Parenthesized	expressions  have
+		    extra indentation added to indicate	the nest-
+		    ing,  unless  -lp is in effect.  -ci defaults
+		    to the same	value as -i.
+
+     -clin	    Causes case	labels to be indented n	tab stops
+		    to	the right of the containing switch state-
+		    ment.   -cli0.5  causes  case  labels  to  be
+		    indented  half  a  tab  stop.  The default is
+		    -cli0 .
+
+     -dn	    Controls the placement of comments which  are
+		    not	 to  the  right	of code.  The default -d1
+		    means  that	 such  comments	 are  placed  one
+		    indentation	  level	 to  the  left	of  code.
+		    Specifying -d0 lines up these  comments  with
+		    the	 code.	See the	section	on comment inden-
+		    tation below.
+
+     -din	    Specifies  the  indentation,   in	character
+
+INDENT(1)		  USER COMMANDS			INDENT(1)
+
+
+
+		    positions,	from a declaration keyword to the
+		    following identifier.  The default is -di16	.
+
+     -fc1,-nfc1	    Enables (disables) the formatting of comments
+		    that  start	 in  column  1.	  Often, comments
+		    whose leading `/' is in column  1  have  been
+		    carefully  hand  formatted by the programmer.
+		    In such cases, -nfc1  should  be  used.   The
+		    default is -fc1.
+
+     -in	    The	number	of  spaces  for	 one  indentation
+		    level.  The	default	is 4.
+
+     -ip,-nip	    Enables (disables) the indentation of parame-
+		    ter	 declarations  from the	left margin.  The
+		    default is -ip .
+
+     -ln	    Maximum  length  of	 an  output  line.    The
+		    default is 75.
+
+     -npro	    Causes the profile files, `./.indent.pro' and
+		    `~/.indent.pro', to	be ignored.
+
+     -lp,-nlp	    Lines up code surrounded  by  parenthesis  in
+		    continuation  lines.   If  a  line has a left
+		    paren which	is not closed on that line,  then
+		    continuation  lines	will be	lined up to start
+		    at the character position just after the left
+		    paren.   For  example, here	is how a piece of
+		    continued code looks with -nlp in effect:
+			p1 = first_procedure(second_procedure(p2, p3),
+			    third_procedure(p4,	p5));
+		    With -lp in	effect	(the  default)	the  code
+		    looks somewhat clearer:
+			p1 = first_procedure(second_procedure(p2, p3),
+					     third_procedure(p4, p5));
+		    Inserting a	couple more newlines we	get:
+			p1 = first_procedure(second_procedure(p2,
+							      p3),
+					     third_procedure(p4,
+							     p5));
+
+     -pcs , -npcs   If true (-pcs) all procedure calls will  have
+		    a  space  inserted	between	 the name and the
+		    '('.  The default is -npcs
+
+     -psl , -npsl   If true (-psl) the names of	procedures  being
+		    defined are	placed in column 1 - their types,
+		    if any, will be left on the	 previous  lines.
+		    The	default	is -psl
+
+     -sc,-nsc	    Enables (disables) the placement of	asterisks
+
+INDENT(1)		  USER COMMANDS			INDENT(1)
+
+
+
+		    (`*'s) at the left edge of all comments.
+
+     -sob,-nsob	    If -sob is	specified,  indent  will  swallow
+		    optional  blank  lines.   You can use this to
+		    get	rid of blank  lines  after  declarations.
+		    Default: -nsob
+
+     -st	    Causes indent to take its input  from  stdin,
+		    and	put its	output to stdout.
+
+     -Ttypename	    Adds typename to the list of  type	keywords.
+		    Names  accumulate:	-T  can	be specified more
+		    than once.	 You  need  to	specify	 all  the
+		    typenames  that  appear  in	your program that
+		    are	defined	by typedefs  -	nothing	 will  be
+		    harmed  if	you  miss  a few, but the program
+		    won't be formatted as nicely  as  it  should.
+		    This  sounds  like a painful thing to have to
+		    do,	but it's really	a symptom of a problem in
+		    C:	typedef	 causes	a syntactic change in the
+		    laguage and	indent can't find all typedefs.
+
+     -tabsn	    Tells indent that tabs are to be  aligned  at
+		    every n columns.  The default is -tabs8.
+
+     -troff	    Causes indent to format the	program	for  pro-
+		    cessing  by	 troff.	  It will produce a fancy
+		    listing in much the	same  spirit  as  vgrind.
+		    If	the  output  file  is  not specified, the
+		    default is standard	output,	rather than  for-
+		    matting in place.
+
+     -v,-nv	    -v turns on	`verbose' mode,	-nv turns it off.
+		    When  in verbose mode, indent reports when it
+		    splits one line of input  into  two	 or  more
+		    lines  of output, and gives	some size statis-
+		    tics at completion.	The default is -nv.
+
+FURTHER	DESCRIPTION
+     You may set up your own `profile' of defaults to  indent  by
+     creating  a  file	called	.indent.pro  in	either your login
+     directory or the current directory	 and  including	 whatever
+     switches you like.	 A `.indent.pro' in the	current	directory
+     takes precedence over the one in your login  directory.   If
+     indent  is	run and	a profile file exists, then it is read to
+     set up the	program's  defaults.   Switches	 on  the  command
+     line,   though,   always  override	 profile  switches.   The
+     switches should be	separated by spaces, tabs or newlines.
+
+INDENT(1)		  USER COMMANDS			INDENT(1)
+
+
+     Comments
+
+     `Box' comments.  Indent assumes that any comment with a dash
+     or	 star  immediately  after  the start of	comment	(that is,
+     `/*-' or `/**') is	a comment surrounded by	a box  of  stars.
+     Each  line	 of such a comment is left unchanged, except that
+     its indentation may be adjusted to	account	for the	change in
+     indentation of the	first line of the comment.
+
+     Straight text.  All other comments	are treated  as	 straight
+     text.  Indent fits	as many	words (separated by blanks, tabs,
+     or	newlines) on a line as possible.  Blank	lines break para-
+     graphs.
+
+     Comment indentation
+
+     If	a comment is on	a line with code it  is	 started  in  the
+     `comment  column',	 which	is  set	 by  the -cn command line
+     parameter.	 Otherwise, the	comment	is started at n	 indenta-
+     tion  levels less than where code is currently being placed,
+     where n is	specified by the -dn command line parameter.   If
+     the code on a line	extends	past the comment column, the com-
+     ment starts further to the	right, and the right  margin  may
+     be	automatically extended in extreme cases.
+
+     Preprocessor lines
+
+     In	general, indent	leaves	preprocessor  lines  alone.   The
+     only  reformmatting  that	it  will  do  is to straighten up
+     trailing comments.	 It leaves imbedded comments alone.  Con-
+     ditional  compilation  (#ifdef...#endif)  is  recognized and
+     indent attempts to	correctly compensate  for  the	syntactic
+     peculiarites introduced.
+
+     C syntax
+
+     Indent understands	a substantial amount about the syntax  of
+     C,	 but  it  has  a `forgiving' parser.  It attempts to cope
+     with the usual sorts of incomplete	and misformed syntax.  In
+     particular, the use of macros like:
+	     #define forever for(;;)
+     is	handled	properly.
+
+FILES
+     ./.indent.pro  profile file
+
+BUGS
+     Indent has	even more switches than	ls.
+
+     A common mistake that often causes	grief is typing:
+	 indent	*.c
+     to	the shell in an	attempt	to indent all the C programs in	a
+     directory.	 This is probably a bug, not a feature.
+

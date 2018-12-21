@@ -1,0 +1,1857 @@
+#	This is a shell archive.
+#	Remove everything above and including the cut line.
+#	Then run the rest of the file through sh.
+#----cut here-----cut here-----cut here-----cut here----#
+#!/bin/sh
+# shar:    Shell Archiver
+#	Run the following text with /bin/sh to create:
+#	args.c
+#	comment.c
+#	lexi.c
+#	parse.c
+# This archive created: Fri Apr 10 20:51:38 1992
+echo shar: extracting args.c
+sed 's/^X//' << \SHAR_EOF > args.c
+X/*
+X * Copyright (c) 1985 Sun Microsystems, Inc.
+X * Copyright (c) 1980 The Regents of the University of California.
+X * Copyright (c) 1976 Board of Trustees of the University of Illinois.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms are permitted
+X * provided that the above copyright notice and this paragraph are
+X * duplicated in all such forms and that any documentation,
+X * advertising materials, and other materials related to such
+X * distribution and use acknowledge that the software was developed
+X * by the University of California, Berkeley, the University of Illinois,
+X * Urbana, and Sun Microsystems, Inc.  The name of either University
+X * or Sun Microsystems may not be used to endorse or promote products
+X * derived from this software without specific prior written permission.
+X * THIS SOFTWARE IS PROVIDED "AS IS" AND WITHOUT ANY EXPRESS OR
+X * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X * WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#)args.c	5.6 (Berkeley) 88/09/15";
+X
+X#endif							/* not lint */
+X
+X/*
+X * Argument scanning and profile reading code.  Default parameters are set
+X * here as well.
+X */
+X
+X#include "globals.h"
+X#include <sys/types.h>
+X#include <ctype.h>
+X
+X#ifdef MSDOS					/* or OS/2 */
+X#include <stdlib.h>
+X#include <string.h>
+X#include <malloc.h>
+X#define index(a,b) strchr(a,b)
+X#else
+Xchar *getenv(), *index();
+X
+X#endif
+X
+X#ifdef ANSIC
+Xvoid scan_profile(FILE *);
+X#endif
+X
+X/* profile types */
+X#define	PRO_SPECIAL	1			/* special case */
+X#define	PRO_BOOL	2			/* boolean */
+X#define	PRO_INT		3			/* integer */
+X#define PRO_FONT	4			/* troff font */
+X
+X/* profile specials for booleans */
+X#define	ON		1				/* turn it on */
+X#define	OFF		0				/* turn it off */
+X
+X/* profile specials for specials */
+X#define	IGN		1				/* ignore it */
+X#define	CLI		2				/* case label indent (float) */
+X#define	STDIN		3			/* use stdin */
+X#define	KEY		4				/* type (keyword) */
+X#define	CCI		5				/* case code indent (float) */
+X
+X/*
+X * N.B.: because of the way the table here is scanned, options whose names are
+X * substrings of other options must occur later; that is, with -lp vs -l, -lp
+X * must be first.  Also, while (most) booleans occur more than once, the last
+X * default value is the one actually assigned.
+X */
+Xstruct pro
+X{
+X	char *p_name;				/* name, eg -bl, -cli */
+X	int p_type;					/* type (int, bool, special) */
+X	int p_default;				/* the default value (if int) */
+X	int p_special;				/* depends on type */
+X	int *p_obj;					/* the associated variable */
+X}   pro[] =
+X
+X{
+X
+X	"T", PRO_SPECIAL, 0, KEY, 0,
+X	"bacc", PRO_BOOL, false, ON, &blanklines_around_conditional_compilation,
+X	"badp", PRO_BOOL, false, ON, &blanklines_after_declarations_at_proctop,
+X	"bad", PRO_BOOL, false, ON, &blanklines_after_declarations,
+X	"bap", PRO_BOOL, false, ON, &blanklines_after_procs,
+X	"bbb", PRO_BOOL, false, ON, &blanklines_before_blockcomments,
+X	"bc", PRO_BOOL, true, OFF, &ps.leave_comma,
+X	"bl", PRO_BOOL, false, OFF, &btype_2,
+X	"brr", PRO_BOOL, false, ON, &btype_3,
+X	"br", PRO_BOOL, true, ON, &btype_2,
+X	"bs", PRO_BOOL, false, ON, &Bill_Shannon,
+X	"cdb", PRO_BOOL, true, ON, &comment_delimiter_on_blankline,
+X	"cd", PRO_INT, 0, 0, &ps.decl_com_ind,
+X	"ce", PRO_BOOL, true, ON, &cuddle_else,
+X	"ci", PRO_INT, 0, 0, &continuation_indent,
+X	"cli", PRO_SPECIAL, 0, CLI, 0,
+X	"cci", PRO_SPECIAL, 0, CCI, 0,
+X	"c", PRO_INT, 33, 0, &ps.com_ind,
+X	"di", PRO_INT, 16, 0, &ps.decl_indent,
+X	"dj", PRO_BOOL, false, ON, &ps.ljust_decl,
+X	"d", PRO_INT, 0, 0, &ps.unindent_displace,
+X	"eei", PRO_BOOL, false, ON, &extra_expression_indent,
+X	"ei", PRO_BOOL, true, ON, &ps.else_if,
+X	"fbc", PRO_FONT, 0, 0, (int *) &blkcomf,
+X	"fbx", PRO_FONT, 0, 0, (int *) &boxcomf,
+X	"fb", PRO_FONT, 0, 0, (int *) &bodyf,
+X	"fc1", PRO_BOOL, true, ON, &format_col1_comments,
+X	"fc", PRO_FONT, 0, 0, (int *) &scomf,
+X	"fk", PRO_FONT, 0, 0, (int *) &keywordf,
+X	"fs", PRO_FONT, 0, 0, (int *) &stringf,
+X	"ip", PRO_BOOL, true, ON, &ps.indent_parameters,
+X	"i", PRO_INT, 8, 0, &ps.ind_size,
+X	"lc", PRO_INT, 0, 0, &block_comment_max_col,
+X	"lp", PRO_BOOL, true, ON, &lineup_to_parens,
+X	"l", PRO_INT, 78, 0, &max_col,
+X	"nbacc", PRO_BOOL, false, OFF, &blanklines_around_conditional_compilation,
+X	"nbadp", PRO_BOOL, false, OFF, &blanklines_after_declarations_at_proctop,
+X	"nbad", PRO_BOOL, false, OFF, &blanklines_after_declarations,
+X	"nbap", PRO_BOOL, false, OFF, &blanklines_after_procs,
+X	"nbbb", PRO_BOOL, false, OFF, &blanklines_before_blockcomments,
+X	"nbc", PRO_BOOL, true, ON, &ps.leave_comma,
+X	"nbs", PRO_BOOL, false, OFF, &Bill_Shannon,
+X	"ncdb", PRO_BOOL, true, OFF, &comment_delimiter_on_blankline,
+X	"nce", PRO_BOOL, true, OFF, &cuddle_else,
+X	"ndj", PRO_BOOL, false, OFF, &ps.ljust_decl,
+X	"neei", PRO_BOOL, false, OFF, &extra_expression_indent,
+X	"nei", PRO_BOOL, true, OFF, &ps.else_if,
+X	"nfc1", PRO_BOOL, true, OFF, &format_col1_comments,
+X	"nip", PRO_BOOL, true, OFF, &ps.indent_parameters,
+X	"nlp", PRO_BOOL, true, OFF, &lineup_to_parens,
+X	"npcs", PRO_BOOL, false, OFF, &proc_calls_space,
+X	"npro", PRO_SPECIAL, 0, IGN, 0,
+X	"nprs", PRO_BOOL, false, OFF, &parens_space,
+X	"npsl", PRO_BOOL, true, OFF, &procnames_start_line,
+X	"nps", PRO_BOOL, false, OFF, &pointer_as_binop,
+X	"nsc", PRO_BOOL, true, OFF, &star_comment_cont,
+X	"nsob", PRO_BOOL, false, OFF, &swallow_optional_blanklines,
+X	"nv", PRO_BOOL, false, OFF, &verbose,
+X	"pcs", PRO_BOOL, false, ON, &proc_calls_space,
+X	"prs", PRO_BOOL, false, ON, &parens_space,
+X	"psl", PRO_BOOL, true, ON, &procnames_start_line,
+X	"ps", PRO_BOOL, false, ON, &pointer_as_binop,
+X	"sc", PRO_BOOL, true, ON, &star_comment_cont,
+X	"sob", PRO_BOOL, false, ON, &swallow_optional_blanklines,
+X	"st", PRO_SPECIAL, 0, STDIN, 0,
+X	"tabs", PRO_INT, 8, 0, &tabsize,
+X	"troff", PRO_BOOL, false, ON, &troff,
+X	"v", PRO_BOOL, false, ON, &verbose,
+X	"+", PRO_BOOL, false, ON, &cplus,
+X	/* whew! */
+X	0, 0, 0, 0, 0
+X};
+X
+X/*
+X * set_profile reads $HOME/.indent.pro and ./.indent.pro and handles arguments
+X * given in these files.
+X */
+X#ifdef ANSIC
+Xvoid set_profile(void)
+X#else
+Xset_profile()
+X#endif
+X{
+X	FILE *f;
+X	char fname[BUFSIZ];
+X
+X#ifdef MSDOS					/* or OS/2 */
+X	static char prof[] = "indent.pro";
+X
+X#else
+X	static char prof[] = ".indent.pro";
+X
+X#endif
+X	sprintf(fname, "%s/%s", getenv("HOME"), prof);
+X	if ((f = fopen(fname, "r")) != NULL)
+X	{
+X		scan_profile(f);
+X		(void) fclose(f);
+X	}
+X	if ((f = fopen(prof, "r")) != NULL)
+X	{
+X		scan_profile(f);
+X		(void) fclose(f);
+X	}
+X}
+X
+X#ifdef ANSIC
+Xvoid scan_profile(FILE *f)
+X#else
+Xscan_profile(f)
+X	FILE *f;
+X
+X#endif
+X{
+X	register int i;
+X	register char *p;
+X	char buf[BUFSIZ];
+X
+X	while (1)
+X	{
+X		for (p = buf; (i = getc(f)) != EOF && (*p = (char) i) > ' '; ++p);
+X		if (p != buf)
+X		{
+X			*p++ = 0;
+X			if (verbose)
+X				printf("profile: %s\n", buf);
+X			set_option(buf);
+X		}
+X		else if (i == EOF)
+X			return;
+X	}
+X}
+X
+Xstatic char *param_start;
+X
+X#ifdef ANSIC
+Xstatic int eqin(register char *s1, register char *s2)
+X#else
+Xeqin(s1, s2)
+X	register char *s1;
+X	register char *s2;
+X
+X#endif
+X{
+X	while (*s1)
+X	{
+X		if (*s1++ != *s2++)
+X			return (false);
+X	}
+X	param_start = s2;
+X	return (true);
+X}
+X
+X/*
+X * Set the defaults.
+X */
+X#ifdef ANSIC
+Xvoid set_defaults(void)
+X#else
+Xset_defaults()
+X#endif
+X{
+X	register struct pro *p;
+X
+X	/*
+X	   Because ps.case_indent and ps.case_code_indent are floats, we can't
+X	   initialize them from the table:
+X	*/
+X	ps.case_indent = (float) 0;	/* -cli0.0 */
+X	ps.case_code_indent = (float) 1;	/* -cci1.0 */
+X	for (p = pro; p->p_name != NULL; p++)
+X		if (p->p_type != PRO_SPECIAL && p->p_type != PRO_FONT)
+X			*p->p_obj = p->p_default;
+X}
+X
+X#ifdef ANSIC
+Xvoid set_option(register char *arg)
+X#else
+Xset_option(arg)
+X	register char *arg;
+X
+X#endif
+X{
+X	register struct pro *p;
+X#ifndef ANSIC
+X	extern double atof();
+X#endif
+X	arg++;						/* ignore leading "-" */
+X	for (p = pro; p->p_name; p++)
+X		if (*p->p_name == *arg && eqin(p->p_name, arg))
+X			goto found;
+X	fprintf(stderr, "indent: unknown parameter \"%s\"\n", arg - 1);
+X	exit(1);
+Xfound:
+X	switch (p->p_type)
+X	{
+X
+X	case PRO_SPECIAL:
+X		switch (p->p_special)
+X		{
+X
+X		case IGN:
+X			break;
+X
+X		case CLI:
+X			if (*param_start == 0)
+X				goto need_param;
+X			ps.case_indent = (float) atof(param_start);
+X			break;
+X
+X		case CCI:
+X			if (*param_start == 0)
+X				goto need_param;
+X			ps.case_code_indent = (float) atof(param_start);
+X			break;
+X
+X		case STDIN:
+X			if (input == NULL)
+X				input = stdin;
+X			if (output == NULL)
+X				output = stdout;
+X			break;
+X
+X		case KEY:
+X			if (*param_start == 0)
+X				goto need_param;
+X			{
+X				register char *str = (char *) malloc(strlen(param_start) + 1);
+X
+X				strcpy(str, param_start);
+X				addkey(str, 4);
+X			}
+X			break;
+X
+X		default:
+X			fprintf(stderr,
+X					"indent: set_option: internal error: p_special %d\n",
+X					p->p_special);
+X			exit(1);
+X		}
+X		break;
+X
+X	case PRO_BOOL:
+X		if (p->p_special == OFF)
+X			*p->p_obj = false;
+X		else
+X			*p->p_obj = true;
+X		break;
+X
+X	case PRO_INT:
+X		if (*param_start == 0)
+X		{
+X	need_param:
+X			fprintf(stderr, "indent: ``%s'' requires a parameter\n",
+X					arg - 1);
+X			exit(1);
+X		}
+X		*p->p_obj = atoi(param_start);
+X		break;
+X
+X	case PRO_FONT:
+X		parsefont((struct fstate *) p->p_obj, param_start);
+X		break;
+X
+X	default:
+X		fprintf(stderr, "indent: set_option: internal error: p_type %d\n",
+X				p->p_type);
+X		exit(1);
+X	}
+X}
+SHAR_EOF
+if test 9142 -ne "`wc -c args.c`"
+then
+echo shar: error transmitting args.c '(should have been 9142 characters)'
+fi
+echo shar: extracting comment.c
+sed 's/^X//' << \SHAR_EOF > comment.c
+X/*
+X * Copyright (c) 1985 Sun Microsystems, Inc.
+X * Copyright (c) 1980 The Regents of the University of California.
+X * Copyright (c) 1976 Board of Trustees of the University of Illinois.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms are permitted
+X * provided that the above copyright notice and this paragraph are
+X * duplicated in all such forms and that any documentation,
+X * advertising materials, and other materials related to such
+X * distribution and use acknowledge that the software was developed
+X * by the University of California, Berkeley, the University of Illinois,
+X * Urbana, and Sun Microsystems, Inc.  The name of either University
+X * or Sun Microsystems may not be used to endorse or promote products
+X * derived from this software without specific prior written permission.
+X * THIS SOFTWARE IS PROVIDED "AS IS" AND WITHOUT ANY EXPRESS OR
+X * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X * WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#)comment.c	5.9 (Berkeley) 88/09/15";
+X
+X#endif							/* not lint */
+X
+X/*
+X * NAME:
+X *	pr_comment
+X *
+X * FUNCTION:
+X *	This routine takes care of scanning and printing comments.
+X *
+X * ALGORITHM:
+X *	1) Decide where the comment should be aligned, and if lines should
+X *	   be broken.
+X *	2) If lines should not be broken and filled, just copy up to end of
+X *	   comment.
+X *	3) If lines should be filled, then scan thru input_buffer copying
+X *	   characters to com_buf.  Remember where the last blank, tab, or
+X *	   newline was.  When line is filled, print up to last blank and
+X *	   continue copying.
+X *
+X * HISTORY:
+X *	November 1976	D A Willcox of CAC	Initial coding
+X *	12/6/76		D A Willcox of CAC	Modification to handle
+X *						UNIX-style comments
+X *
+X */
+X
+X/*
+X * this routine processes comments.  It makes an attempt to keep comments from
+X * going over the max line length.  If a line is too long, it moves everything
+X * from the last blank to the next comment line.  Blanks and tabs from the
+X * beginning of the input line are removed
+X */
+X
+X
+X#include "globals.h"
+X
+X#ifdef MSDOS					/* or OS/2 */
+X#include <malloc.h>
+X#endif
+X
+X#ifdef ANSIC
+Xvoid pr_comment(void)
+X#else
+Xpr_comment()
+X#endif
+X{
+X	int now_col;				/* column we are in now */
+X	int adj_max_col;			/* Adjusted max_col for when we decide to spill
+X								   comments over the right margin */
+X	char *last_bl;				/* points to the last blank in the output
+X								   buffer */
+X	char *t_ptr;				/* used for moving string */
+X	int unix_comment;			/* tri-state variable used to decide if it is a
+X								   unix-style comment. 0 means only blanks
+X								   since /*, 1 means regular style comment, 2
+X								   means unix style comment */
+X	int break_delim = comment_delimiter_on_blankline;
+X	int l_just_saw_decl = ps.just_saw_decl;
+X
+X	/*
+X	   int         ps.last_nl = 0;	/* true iff the last significant thing weve
+X	   seen is a newline
+X	*/
+X	int one_liner = 1;			/* true iff this comment is a one-liner */
+X
+X	adj_max_col = max_col;
+X	ps.just_saw_decl = 0;
+X	last_bl = 0;				/* no blanks found so far */
+X	ps.box_com = false;			/* at first, assume that we are not in a boxed
+X								   comment or some other comment that should
+X								   not be touched */
+X	++ps.out_coms;				/* keep track of number of comments */
+X	unix_comment = 1;			/* set flag to let us figure out if there is a
+X								   unix-style comment ** DISABLED: use 0 to
+X								   reenable this hack! */
+X
+X	/* Figure where to align and how to treat the comment */
+X
+X	if (ps.col_1 && !format_col1_comments)
+X	{							/* if comment starts in column 1 it should not
+X								   be touched */
+X		ps.box_com = true;
+X		ps.com_col = 1;
+X	}
+X	else
+X	{
+X		if (*buf_ptr == '-' || *buf_ptr == '*')
+X		{
+X			ps.box_com = true;	/* a comment with a '-' or '*' immediately
+X								   after the /* is assumed to be a boxed
+X								   comment */
+X			break_delim = 0;
+X		}
+X		if ( /* ps.bl_line && */ (s_lab == e_lab) && (s_code == e_code))
+X		{
+X			/* klg: check only if this line is blank */
+X			/*
+X			   If this (*and previous lines are*) blank, dont put comment way
+X			   out at left
+X			*/
+X			ps.com_col = (ps.ind_level - ps.unindent_displace) * ps.ind_size + 1;
+X			adj_max_col = block_comment_max_col;
+X			if (ps.com_col <= 1)
+X				ps.com_col = 1 + !format_col1_comments;
+X		}
+X		else
+X		{
+X			register target_col;
+X
+X			break_delim = 0;
+X			if (s_code != e_code)
+X				target_col = count_spaces(compute_code_target(), s_code);
+X			else
+X			{
+X				target_col = 1;
+X				if (s_lab != e_lab)
+X					target_col = count_spaces(compute_label_target(), s_lab);
+X			}
+X			ps.com_col = ps.decl_on_line || ps.ind_level == 0 ? ps.decl_com_ind : ps.com_ind;
+X			if (ps.com_col < target_col)
+X				ps.com_col = target_col +
+X					(tabsize - ((target_col - 1) % tabsize));	/* JHT 22oct89 */
+X			if (ps.com_col + 24 > adj_max_col)
+X				adj_max_col = ps.com_col + 24;
+X		}
+X	}
+X	if (ps.box_com)
+X	{
+X		buf_ptr[-2] = 0;
+X		ps.n_comment_delta = 1 - count_spaces(1, in_buffer);
+X		buf_ptr[-2] = '/';
+X	}
+X	else
+X	{
+X		ps.n_comment_delta = 0;
+X		while (*buf_ptr == ' ' || *buf_ptr == '\t')
+X			buf_ptr++;
+X	}
+X	ps.comment_delta = 0;
+X	*e_com++ = '/';				/* put '/*' into buffer */
+X	if (ps.cc_comment)			/* (or '//') */
+X		*e_com++ = '/';
+X	else
+X		*e_com++ = '*';
+X	if (*buf_ptr != ' ' && !ps.box_com)
+X		*e_com++ = ' ';
+X
+X	*e_com = '\0';
+X	if (troff)
+X	{
+X		now_col = 1;
+X		adj_max_col = 80;
+X	}
+X	else
+X		now_col = count_spaces(ps.com_col, s_com);	/* figure what column we
+X													   would be in if we
+X													   printed the comment now */
+X
+X	/* Start to copy the comment */
+X
+X	while (1)
+X	{							/* this loop will go until the comment is
+X								   copied */
+X		if (*buf_ptr >= 040 && *buf_ptr != '*')
+X			ps.last_nl = 0;
+X		check_size(com);
+X		switch (*buf_ptr)
+X		{						/* this checks for various spcl cases */
+X		case 014:				/* check for a form feed */
+X			if (!ps.box_com)
+X			{					/* in a text comment, break the line here */
+X				ps.use_ff = true;
+X				/* fix so dump_line uses a form feed */
+X				dump_line();
+X				last_bl = 0;
+X				*e_com++ = ' ';
+X				*e_com++ = '*';
+X				*e_com++ = ' ';
+X				while (*++buf_ptr == ' ' || *buf_ptr == '\t');
+X			}
+X			else
+X			{
+X				if (++buf_ptr >= buf_end)
+X					fill_buffer();
+X				*e_com++ = 014;
+X			}
+X			break;
+X
+X		case '\n':
+X			if (ps.cc_comment)
+X			{
+X				*e_com = '\0';
+X				dump_line();
+X				ps.cc_comment = 0;
+X				ps.just_saw_decl = l_just_saw_decl;	/* ?? */
+X				if (++buf_ptr >= buf_end)	/* eat '\n' */
+X					fill_buffer();
+X				ps.last_nl = 1;	/* jrs 12 Mar 92 */
+X				return;
+X			}
+X			if (had_eof)
+X			{					/* check for unexpected eof */
+X				printf("Unterminated comment\n");
+X				*e_com = '\0';
+X				dump_line();
+X				return;
+X			}
+X			one_liner = 0;
+X			if (ps.box_com || ps.last_nl)
+X			{					/* if this is a boxed comment, we dont ignore
+X								   the newline */
+X				if (s_com == e_com)
+X				{
+X					*e_com++ = ' ';
+X					*e_com++ = ' ';
+X				}
+X				*e_com = '\0';
+X				if (!ps.box_com && e_com - s_com > 3)
+X				{
+X					if (break_delim == 1 && s_com[0] == '/'
+X						&& s_com[1] == '*' && s_com[2] == ' ')
+X					{
+X						char *t = e_com;
+X
+X						break_delim = 2;
+X						e_com = s_com + 2;
+X						*e_com = 0;
+X						if (blanklines_before_blockcomments)
+X							prefix_blankline_requested = 1;
+X						dump_line();
+X						e_com = t;
+X						s_com[0] = s_com[1] = s_com[2] = ' ';
+X					}
+X					dump_line();
+X					check_size(com);
+X					*e_com++ = ' ';
+X					*e_com++ = ' ';
+X				}
+X				dump_line();
+X				now_col = ps.com_col;
+X			}
+X			else
+X			{
+X				ps.last_nl = 1;
+X				if (unix_comment != 1)
+X				{				/* we are not in unix_style comment */
+X					if (unix_comment == 0 && s_code == e_code)
+X					{
+X						/*
+X						   if it is a UNIX-style comment, ignore the
+X						   requirement that previous line be blank for
+X						   unindention
+X						*/
+X						ps.com_col = (ps.ind_level - ps.unindent_displace) * ps.ind_size + 1;
+X						if (ps.com_col <= 1)
+X							ps.com_col = 2;
+X					}
+X					unix_comment = 2;	/* permanently remember that we are in
+X										   this type of comment */
+X					dump_line();
+X					++line_no;
+X					now_col = ps.com_col;
+X					*e_com++ = ' ';
+X					/*
+X					   fix so that the star at the start of the line will line
+X					   up
+X					*/
+X					do			/* flush leading white space */
+X						if (++buf_ptr >= buf_end)
+X							fill_buffer();
+X					while (*buf_ptr == ' ' || *buf_ptr == '\t');
+X					break;
+X				}
+X				if (*(e_com - 1) == ' ' || *(e_com - 1) == '\t')
+X					last_bl = e_com - 1;
+X				/*
+X				   if there was a space at the end of the last line, remember
+X				   where it was
+X				*/
+X				else
+X				{				/* otherwise, insert one */
+X					last_bl = e_com;
+X					check_size(com);
+X					*e_com++ = ' ';
+X					++now_col;
+X				}
+X			}
+X			++line_no;			/* keep track of input line number */
+X			if (!ps.box_com)
+X			{
+X				int nstar = 1;
+X
+X				do
+X				{				/* flush any blanks and/or tabs at start of
+X								   next line */
+X					if (++buf_ptr >= buf_end)
+X						fill_buffer();
+X					if (*buf_ptr == '*' && --nstar >= 0)
+X					{
+X						if (++buf_ptr >= buf_end)
+X							fill_buffer();
+X						if (*buf_ptr == '/')
+X							goto end_of_comment;
+X					}
+X				} while (*buf_ptr == ' ' || *buf_ptr == '\t');
+X			}
+X			else if (++buf_ptr >= buf_end)
+X				fill_buffer();
+X			break;				/* end of case for newline */
+X
+X		case '*':				/* must check for possibility of being at end
+X								   of comment */
+X			if (++buf_ptr >= buf_end)	/* get to next char after * */
+X				fill_buffer();
+X
+X			if (unix_comment == 0)	/* set flag to show we are not in
+X									   unix-style comment */
+X				unix_comment = 1;
+X
+X			if (*buf_ptr == '/')
+X			{					/* it is the end!!! */
+X		end_of_comment:
+X				if (++buf_ptr >= buf_end)
+X					fill_buffer();
+X
+X				if (*(e_com - 1) != ' ' && !ps.box_com)
+X				{				/* ensure blank before end */
+X					*e_com++ = ' ';
+X					++now_col;
+X				}
+X				if (break_delim == 1 && !one_liner && s_com[0] == '/'
+X					&& s_com[1] == '*' && s_com[2] == ' ')
+X				{
+X					char *t = e_com;
+X
+X					break_delim = 2;
+X					e_com = s_com + 2;
+X					*e_com = 0;
+X					if (blanklines_before_blockcomments)
+X						prefix_blankline_requested = 1;
+X					dump_line();
+X					e_com = t;
+X					s_com[0] = s_com[1] = s_com[2] = ' ';
+X				}
+X				if (break_delim == 2 && e_com > s_com + 3
+X					 /* now_col > adj_max_col - 2 && !ps.box_com */ )
+X				{
+X					*e_com = '\0';
+X					dump_line();
+X					now_col = ps.com_col;
+X				}
+X				check_size(com);
+X				*e_com++ = '*';
+X				*e_com++ = '/';
+X				*e_com = '\0';
+X				ps.just_saw_decl = l_just_saw_decl;
+X				return;
+X			}
+X			else
+X			{					/* handle isolated '*' */
+X				*e_com++ = '*';
+X				++now_col;
+X			}
+X			break;
+X		default:				/* we have a random char */
+X			if (unix_comment == 0 && *buf_ptr != ' ' && *buf_ptr != '\t')
+X				unix_comment = 1;	/* we are not in unix-style comment */
+X
+X			*e_com = *buf_ptr++;
+X			if (buf_ptr >= buf_end)
+X				fill_buffer();
+X
+X			if (*e_com == '\t')	/* keep track of column */
+X				now_col = now_col + (tabsize - ((now_col - 1) % tabsize));
+X			else if (*e_com == '\b')	/* this is a backspace */
+X				--now_col;
+X			else
+X				++now_col;
+X
+X			if (*e_com == ' ' || *e_com == '\t')
+X				last_bl = e_com;
+X			/* remember we saw a blank */
+X
+X			++e_com;
+X			if (now_col > adj_max_col && !ps.box_com && unix_comment == 1 && e_com[-1] > ' ')
+X			{
+X				/*
+X				   the comment is too long, it must be broken up
+X				*/
+X				if (break_delim == 1 && s_com[0] == '/'
+X					&& s_com[1] == '*' && s_com[2] == ' ')
+X				{
+X					char *t = e_com;
+X
+X					break_delim = 2;
+X					e_com = s_com + 2;
+X					*e_com = 0;
+X					if (blanklines_before_blockcomments)
+X						prefix_blankline_requested = 1;
+X					dump_line();
+X					e_com = t;
+X					s_com[0] = s_com[1] = s_com[2] = ' ';
+X				}
+X				if (last_bl == 0)
+X				{				/* we have seen no blanks */
+X					last_bl = e_com;	/* fake it */
+X					*e_com++ = ' ';
+X				}
+X				*e_com = '\0';	/* print what we have */
+X				*last_bl = '\0';
+X				while (last_bl > s_com && last_bl[-1] < 040)
+X					*--last_bl = 0;
+X				e_com = last_bl;
+X				dump_line();
+X
+X				*e_com++ = ps.cc_comment ? '/' : ' ';	/* blanks or slashes */
+X				*e_com++ = ps.cc_comment ? '/' : ' ';	/* for continuation */
+X				*e_com++ = ' ';
+X
+X				t_ptr = last_bl + 1;
+X				last_bl = 0;
+X				if (t_ptr >= e_com)
+X				{
+X					while (*t_ptr == ' ' || *t_ptr == '\t')
+X						t_ptr++;
+X					while (*t_ptr != '\0')
+X					{			/* move unprinted part of comment down in
+X								   buffer */
+X						if (*t_ptr == ' ' || *t_ptr == '\t')
+X							last_bl = e_com;
+X						*e_com++ = *t_ptr++;
+X					}
+X				}
+X				*e_com = '\0';
+X				now_col = count_spaces(ps.com_col, s_com);	/* recompute current
+X															   position */
+X			}
+X			break;
+X		}
+X	}
+X}
+SHAR_EOF
+if test 12422 -ne "`wc -c comment.c`"
+then
+echo shar: error transmitting comment.c '(should have been 12422 characters)'
+fi
+echo shar: extracting lexi.c
+sed 's/^X//' << \SHAR_EOF > lexi.c
+X/*
+X * Copyright (c) 1985 Sun Microsystems, Inc.
+X * Copyright (c) 1980 The Regents of the University of California.
+X * Copyright (c) 1976 Board of Trustees of the University of Illinois.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms are permitted
+X * provided that the above copyright notice and this paragraph are
+X * duplicated in all such forms and that any documentation,
+X * advertising materials, and other materials related to such
+X * distribution and use acknowledge that the software was developed
+X * by the University of California, Berkeley, the University of Illinois,
+X * Urbana, and Sun Microsystems, Inc.  The name of either University
+X * or Sun Microsystems may not be used to endorse or promote products
+X * derived from this software without specific prior written permission.
+X * THIS SOFTWARE IS PROVIDED "AS IS" AND WITHOUT ANY EXPRESS OR
+X * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X * WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#)lexi.c	5.11 (Berkeley) 88/09/15";
+X
+X#endif							/* not lint */
+X
+X/*
+X * Here we have the token scanner for indent.  It scans off one token and puts
+X * it in the global variable "token".  It returns a code, indicating the type
+X * of token scanned.
+X */
+X
+X#include "globals.h"
+X#include "codes.h"
+X#include <ctype.h>
+X
+X#ifdef MSDOS					/* or OS/2 */
+X#include <string.h>
+X#endif
+X
+Xtypedef enum char_type
+X{
+X	alphanum = 1,
+X	opchar = 3,
+X	colonchar = 4
+X} char_type;
+X
+Xstruct templ
+X{
+X	char *rwd;
+X	int rwcode;
+X	cplus_flag cplus;
+X};
+X
+Xstruct templ specials[100] =
+X{
+X	"switch", 1, c_and_cplus,
+X	"case", 2, c_and_cplus,
+X	"break", 0, c_and_cplus,
+X	"struct", 3, c_and_cplus,
+X	"union", 3, c_and_cplus,
+X	"enum", 3, c_and_cplus,
+X	"default", 2, c_and_cplus,
+X	"int", 4, c_and_cplus,
+X	"char", 4, c_and_cplus,
+X	"float", 4, c_and_cplus,
+X	"double", 4, c_and_cplus,
+X	"long", 4, c_and_cplus,
+X	"short", 4, c_and_cplus,
+X	"typedef", 8, c_and_cplus,
+X	"unsigned", 4, c_and_cplus,
+X	"register", 4, c_and_cplus,
+X	"static", 4, c_and_cplus,
+X	"global", 4, c_and_cplus,
+X	"extern", 4, c_and_cplus,
+X	"void", 4, c_and_cplus,
+X	"goto", 0, c_and_cplus,
+X	"return", 0, c_and_cplus,
+X	"if", 5, c_and_cplus,
+X	"while", 5, c_and_cplus,
+X	"for", 5, c_and_cplus,
+X	"else", 6, c_and_cplus,
+X	"do", 6, c_and_cplus,
+X	"sizeof", 7, c_and_cplus,
+X	"class", 3, cplus_only,
+X	"public", 2, cplus_only,
+X	"private", 2, cplus_only,
+X	"protected", 2, cplus_only,
+X	"volatile", 4, c_and_cplus,
+X
+X	0, 0
+X};
+X
+Xchar chartype[128] =
+X{								/* this is used to facilitate the decision of
+X								   what type (alphanumeric, operator) each
+X								   character is */
+X	0, 0, 0, 0, 0, 0, 0, 0,
+X	0, 0, 0, 0, 0, 0, 0, 0,
+X	0, 0, 0, 0, 0, 0, 0, 0,
+X	0, 0, 0, 0, 0, 0, 0, 0,
+X	0, 3, 0, 0, 1, 3, 3, 0,
+X	0, 0, 3, 3, 0, 3, 0, 3,
+X	1, 1, 1, 1, 1, 1, 1, 1,
+X	1, 1, 4, 0, 3, 3, 3, 3,
+X	0, 1, 1, 1, 1, 1, 1, 1,
+X	1, 1, 1, 1, 1, 1, 1, 1,
+X	1, 1, 1, 1, 1, 1, 1, 1,
+X	1, 1, 1, 0, 0, 0, 3, 1,
+X	0, 1, 1, 1, 1, 1, 1, 1,
+X	1, 1, 1, 1, 1, 1, 1, 1,
+X	1, 1, 1, 1, 1, 1, 1, 1,
+X	1, 1, 1, 0, 3, 0, 3, 0
+X};
+X
+X
+X
+X#ifdef ANSIC
+Xint lexi(void)
+X#else
+Xint lexi()
+X#endif
+X{
+X	register char *tok;			/* local pointer to next char in token */
+X	int unary_delim;			/* this is set to 1 if the current token
+X								
+X								forces a following operator to be unary */
+X	static int last_code;		/* the last token type returned */
+X	static int l_struct;		/* set to 1 if the last token was 'struct' */
+X	static int l_struct_start;	/* set at struct, cleared at { or ; */
+X	static int l_class;			/* in c++, class name coming next. */
+X	int code;					/* internal code to be returned */
+X	char qchar;					/* the delimiter character for a string */
+X
+X	tok = token;				/* point to start of place to save token */
+X	unary_delim = false;
+X	ps.col_1 = ps.last_nl;		/* tell world that this token started in column
+X								   1 iff the last thing scanned was nl */
+X	ps.last_nl = false;
+X
+X	while (*buf_ptr == ' ' || *buf_ptr == '\t')
+X	{							/* get rid of blanks */
+X		ps.col_1 = false;		/* leading blanks imply token is not in column
+X								   1 */
+X		if (++buf_ptr >= buf_end)
+X			fill_buffer();
+X	}
+X
+X	/* Scan an alphanumeric token */
+X	/* In c++, :: starting token is aok, as is ~ sometimes */
+X	/* well, int x = ~y; will work oddly here */
+X	if (((char_type) chartype[*buf_ptr] == alphanum || buf_ptr[0] == '.' && isdigit(buf_ptr[1])) ||
+X		(cplus && buf_ptr[0] == ':' && buf_ptr[1] == ':') ||
+X		(cplus && ps.in_decl && *buf_ptr == '~'
+X		 && (char_type) chartype[buf_ptr[1]] == alphanum)	/* destructors in
+X															   classdefs */
+X		)
+X	{
+X		/*
+X		   we have a character or number
+X		*/
+X		register char *j;		/* used for searching thru list of
+X								
+X								reserved words */
+X		register struct templ *p;
+X
+X		if (isdigit(*buf_ptr) || buf_ptr[0] == '.' && isdigit(buf_ptr[1]))
+X		{
+X			int seendot = 0, seenexp = 0;
+X
+X			if (*buf_ptr == '0' &&
+X				(buf_ptr[1] == 'x' || buf_ptr[1] == 'X'))
+X			{
+X				*tok++ = *buf_ptr++;
+X				*tok++ = *buf_ptr++;
+X				while (isxdigit(*buf_ptr))
+X					*tok++ = *buf_ptr++;
+X			}
+X			else
+X				while (1)
+X				{
+X					if (*buf_ptr == '.')
+X						if (seendot)
+X							break;
+X						else
+X							seendot++;
+X					*tok++ = *buf_ptr++;
+X					if (!isdigit(*buf_ptr) && *buf_ptr != '.')
+X						if ((*buf_ptr != 'E' && *buf_ptr != 'e') || seenexp)
+X							break;
+X						else
+X						{
+X							seenexp++;
+X							seendot++;
+X							*tok++ = *buf_ptr++;
+X							if (*buf_ptr == '+' || *buf_ptr == '-')
+X								*tok++ = *buf_ptr++;
+X						}
+X				}
+X			if (*buf_ptr == 'L' || *buf_ptr == 'l')
+X				*tok++ = *buf_ptr++;
+X		}
+X		else
+X		{
+X			int first;
+X
+X			first = 1;
+X			while ((char_type) chartype[*buf_ptr] == alphanum ||
+X				   (buf_ptr[0] == ':' && buf_ptr[1] == ':' && cplus) ||
+X				   (cplus && first && buf_ptr[0] == '~'))
+X			{					/* copy it over */
+X				int colonp;
+X
+X				first = 0;
+X				colonp = *buf_ptr == ':';
+X				*tok++ = *buf_ptr++;
+X				if (colonp)
+X				{
+X					*tok++ = *buf_ptr++;
+X					/* foo::~foo */
+X					if (*buf_ptr == '~')
+X						*tok++ = *buf_ptr++;
+X					colonp = 0;
+X				}
+X				if (buf_ptr >= buf_end)
+X					fill_buffer();
+X			}
+X		}
+X		*tok++ = '\0';
+X		while (*buf_ptr == ' ' || *buf_ptr == '\t')
+X		{						/* get rid of blanks */
+X			if (++buf_ptr >= buf_end)
+X				fill_buffer();
+X		}
+X		ps.its_a_keyword = false;
+X		ps.sizeof_keyword = false;
+X		if (l_struct)
+X		{						/* if last token was 'struct', then this token
+X								   should be treated as a declaration */
+X			if (l_class)
+X				addkey(tok, 4);
+X			l_class = false;
+X			l_struct = false;
+X			last_code = ident;
+X			ps.last_u_d = true;
+X			return (decl);
+X		}
+X		ps.last_u_d = false;	/* Operator after indentifier is binary */
+X		last_code = ident;		/* Remember that this is the code we will
+X								   return */
+X
+X		/*
+X		   This loop will check if the token is a keyword.
+X		*/
+X		for (p = specials; (j = p->rwd) != 0; p++)
+X		{
+X			tok = token;		/* point at scanned token */
+X			if (*j++ != *tok++ || *j++ != *tok++)
+X				continue;		/* This test depends on the fact that
+X								   identifiers are always at least 1 character
+X								   long (ie. the first two bytes of the
+X								   identifier are always meaningful) */
+X			if (tok[-1] == 0)
+X				break;			/* If its a one-character identifier */
+X			while (*tok++ == *j)
+X				if (*j++ == 0 &&
+X					(p->cplus == c_and_cplus ||
+X					 (cplus && p->cplus == cplus_only) ||
+X					 (!cplus && p->cplus == c_only)))
+X					goto found_keyword;	/* I wish that C had a multi-level
+X										   break... */
+X		}
+X		if (p->rwd)
+X		{						/* we have a keyword */
+X	found_keyword:
+X			ps.its_a_keyword = true;
+X			ps.last_u_d = true;
+X			switch (p->rwcode)
+X			{
+X			case 1:			/* it is a switch */
+X				return (swstmt);
+X			case 2:			/* a case or default */
+X				return (casestmt);
+X
+X			case 3:			/* a "struct" */
+X				if (ps.p_l_follow)
+X					break;		/* inside parens: cast */
+X				l_struct = true;
+X				if (cplus)
+X					l_struct_start = true;
+X				/* automatically note keywords */
+X				if (cplus && strcmp(tok, "class") == 0 ||
+X					strcmp(tok, "struct") == 0 ||
+X					strcmp(tok, "union") == 0 ||
+X					strcmp(tok, "enum") == 0)
+X					l_class = true;
+X				/*
+X				   Next time around, we will want to know that we have had a
+X				   'struct'
+X				*/
+X			case 4:			/* one of the declaration keywords */
+X				if (ps.p_l_follow)
+X				{
+X					ps.cast_mask |= 1 << ps.p_l_follow;
+X					break;		/* inside parens: cast */
+X				}
+X				last_code = decl;
+X				return (decl);
+X
+X			case 5:			/* if, while, for */
+X				return (sp_paren);
+X
+X			case 6:			/* do, else */
+X				return (sp_nparen);
+X
+X			case 7:
+X				ps.sizeof_keyword = true;
+X				return (ident);
+X
+X			case 8:			/* typedef is a decl */
+X				last_code = decl;
+X				return (decl);
+X
+X			default:			/* all others are treated like any other
+X								   identifier */
+X				return (ident);
+X			}					/* end of switch */
+X		}						/* end of if (found_it) */
+X		if (*buf_ptr == '(' && ps.tos <= 1 && ps.ind_level == 0)
+X		{
+X			register char *tp = buf_ptr;
+X
+X			while (tp < buf_end)
+X				if (*tp++ == ')' && *tp == ';')
+X					goto not_proc;
+X			strncpy(ps.procname, token, sizeof ps.procname - 1);
+X			ps.in_parameter_declaration = 1;
+X	not_proc:;
+X		}
+X		/*
+X		   The following hack attempts to guess whether or not the current
+X		   token is in fact a declaration keyword -- one that has been typedefd
+X		*/
+X		if (((*buf_ptr == '*' && buf_ptr[1] != '=') || isalpha(*buf_ptr) || *buf_ptr == '_')
+X			&& !ps.p_l_follow
+X			&& !ps.block_init
+X			&& (ps.last_token == rparen || ps.last_token == semicolon ||
+X				ps.last_token == decl ||
+X				ps.last_token == lbrace || ps.last_token == rbrace))
+X		{
+X			ps.its_a_keyword = true;
+X			ps.last_u_d = true;
+X			last_code = decl;
+X			return decl;
+X		}
+X		if (last_code == decl)	/* if this is a declared variable, then
+X								   following sign is unary */
+X			ps.last_u_d = true;	/* will make "int a -1" work */
+X		last_code = ident;
+X		return (ident);			/* the ident is not in the list */
+X	}							/* end of procesing for alpanum character */
+X	/* l l l Scan a non-alphanumeric token */
+X
+X	l_class = false;			/* struct { ain't defining a class. */
+X	*tok++ = *buf_ptr;			/* if it is only a one-character token, it is
+X								   moved here */
+X	*tok = '\0';
+X	if (++buf_ptr >= buf_end)
+X		fill_buffer();
+X
+X	switch (*token)
+X	{
+X	case '\n':
+X		unary_delim = ps.last_u_d;
+X		ps.last_nl = true;		/* remember that we just had a newline */
+X		code = (had_eof ? 0 : newline);
+X
+X		/*
+X		   if data has been exausted, the newline is a dummy, and we should
+X		   return code to stop
+X		*/
+X		break;
+X
+X	case '\'':					/* start of quoted character */
+X	case '"':					/* start of string */
+X		qchar = *token;
+X		if (troff)
+X		{
+X			tok[-1] = '`';
+X			if (qchar == '"')
+X				*tok++ = '`';
+X			tok = chfont(&bodyf, &stringf, tok);
+X		}
+X		do
+X		{						/* copy the string */
+X			while (1)
+X			{					/* move one character or [/<char>]<char> */
+X				if (*buf_ptr == '\n')
+X				{
+X					printf("%d: Unterminated literal\n", line_no);
+X					goto stop_lit;
+X				}
+X				*tok = *buf_ptr++;
+X				if (buf_ptr >= buf_end)
+X					fill_buffer();
+X				if (had_eof || ((tok - token) > (bufsize - 2)))
+X				{
+X					printf("Unterminated literal\n");
+X					++tok;
+X					goto stop_lit;
+X					/* get outof literal copying loop */
+X				}
+X				if (*tok == BACKSLASH)
+X				{				/* if escape, copy extra char */
+X					if (*buf_ptr == '\n')	/* check for escaped newline */
+X						++line_no;
+X					if (troff)
+X					{
+X						*++tok = BACKSLASH;
+X						if (*buf_ptr == BACKSLASH)
+X							*++tok = BACKSLASH;
+X					}
+X					*++tok = *buf_ptr++;
+X					++tok;		/* we must increment this again because we
+X								   copied two chars */
+X					if (buf_ptr >= buf_end)
+X						fill_buffer();
+X				}
+X				else
+X					break;		/* we copied one character */
+X			}					/* end of while (1) */
+X		} while (*tok++ != qchar);
+X		if (troff)
+X		{
+X			tok = chfont(&stringf, &bodyf, tok - 1);
+X			if (qchar == '"')
+X				*tok++ = '\'';
+X		}
+Xstop_lit:
+X		code = ident;
+X		break;
+X
+X	case ('('):
+X	case ('['):
+X		unary_delim = true;
+X		code = lparen;
+X		break;
+X
+X	case (')'):
+X	case (']'):
+X		code = rparen;
+X		break;
+X
+X	case '#':
+X		unary_delim = ps.last_u_d;
+X		code = preesc;
+X		break;
+X
+X	case '?':
+X		unary_delim = true;
+X		code = question;
+X		break;
+X
+X	case (':'):
+X		if (l_struct_start)
+X			code = ident;
+X		else
+X			code = colon;
+X		unary_delim = true;
+X		break;
+X
+X	case (';'):
+X		l_struct_start = false;
+X		unary_delim = true;
+X		code = semicolon;
+X		break;
+X
+X	case ('{'):
+X		l_struct_start = false;
+X		unary_delim = true;
+X
+X		/*
+X		   if (ps.in_or_st) ps.block_init = 1;
+X		*/
+X		/* ?	code = ps.block_init ? lparen : lbrace; */
+X		code = lbrace;
+X		break;
+X
+X	case ('}'):
+X		unary_delim = true;
+X		/* ?	code = ps.block_init ? rparen : rbrace; */
+X		code = rbrace;
+X		break;
+X
+X	case 014:					/* a form feed */
+X		unary_delim = ps.last_u_d;
+X		ps.last_nl = true;		/* remember this so we can set 'ps.col_1' right */
+X		code = form_feed;
+X		break;
+X
+X	case (','):
+X		unary_delim = true;
+X		code = comma;
+X		break;
+X
+X	case '.':
+X		unary_delim = false;
+X		code = period;
+X		break;
+X
+X	case '-':
+X	case '+':					/* check for -, +, --, ++ */
+X		code = (ps.last_u_d ? unary_op : binary_op);
+X		unary_delim = true;
+X
+X		if (*buf_ptr == token[0])
+X		{
+X			/* check for doubled character */
+X			*tok++ = *buf_ptr++;
+X			/* buffer overflow will be checked at end of loop */
+X			if (last_code == ident || last_code == rparen)
+X			{
+X				code = (ps.last_u_d ? unary_op : postop);
+X				/* check for following ++ or -- */
+X				unary_delim = false;
+X			}
+X		}
+X		else if (*buf_ptr == '=')
+X			/* check for operator += */
+X			*tok++ = *buf_ptr++;
+X		else if (*buf_ptr == '>')
+X		{
+X			/* check for operator -> */
+X			*tok++ = *buf_ptr++;
+X			if (!pointer_as_binop)
+X			{
+X				unary_delim = false;
+X				code = unary_op;
+X				ps.want_blank = false;
+X			}
+X		}
+X		break;					/* buffer overflow will be checked at end of
+X								   switch */
+X
+X	case '=':
+X		if (ps.in_or_st)
+X			ps.block_init = 1;
+X#ifdef undef
+X		if (chartype[*buf_ptr] == opchar)
+X		{						/* we have two char assignment */
+X			tok[-1] = *buf_ptr++;
+X			if ((tok[-1] == '<' || tok[-1] == '>') && tok[-1] == *buf_ptr)
+X				*tok++ = *buf_ptr++;
+X			*tok++ = '=';		/* Flip =+ to += */
+X			*tok = 0;
+X		}
+X#else
+X		if (*buf_ptr == '=')
+X		{						/* == */
+X			*tok++ = '=';		/* Flip =+ to += */
+X			buf_ptr++;
+X			*tok = 0;
+X		}
+X#endif
+X		code = binary_op;
+X		unary_delim = true;
+X		break;
+X		/* can drop thru!!! */
+X
+X	case '>':
+X	case '<':
+X	case '!':					/* ops like <, <<, <=, !=, etc */
+X		if (*buf_ptr == '>' || *buf_ptr == '<' || *buf_ptr == '=')
+X		{
+X			*tok++ = *buf_ptr;
+X			if (++buf_ptr >= buf_end)
+X				fill_buffer();
+X		}
+X		if (*buf_ptr == '=')
+X			*tok++ = *buf_ptr++;
+X		code = (ps.last_u_d ? unary_op : binary_op);
+X		unary_delim = true;
+X		break;
+X
+X	default:
+X		if (token[0] == '/' && *buf_ptr == '*')
+X		{
+X			/* it is start of a C comment */
+X			*tok++ = '*';
+X
+X			if (++buf_ptr >= buf_end)
+X				fill_buffer();
+X
+X			code = comment;
+X			unary_delim = ps.last_u_d;
+X			break;
+X		}
+X		if (token[0] == '/' && *buf_ptr == '/')
+X		{
+X			/* it is start of a C++ comment */
+X			*tok++ = '/';
+X
+X			if (++buf_ptr >= buf_end)
+X				fill_buffer();
+X
+X			code = cc_commnt;
+X			ps.cc_comment++;
+X			unary_delim = ps.last_u_d;
+X			break;
+X		}
+X		while (*(tok - 1) == *buf_ptr || *buf_ptr == '=')
+X		{
+X			/*
+X			   handle ||, &&, etc, and also things as in int *****i
+X			*/
+X			*tok++ = *buf_ptr;
+X			if (++buf_ptr >= buf_end)
+X				fill_buffer();
+X		}
+X		code = (ps.last_u_d ? unary_op : binary_op);
+X		unary_delim = true;
+X
+X
+X	}							/* end of switch */
+X	if (code != newline)
+X	{
+X		l_struct = false;
+X		last_code = code;
+X	}
+X	if (buf_ptr >= buf_end)		/* check for input buffer empty */
+X		fill_buffer();
+X	ps.last_u_d = unary_delim;
+X	*tok = '\0';				/* null terminate the token */
+X	return (code);
+X};
+X
+X/*
+X * Add the given keyword to the keyword table, using val as the keyword type
+X */
+X#ifdef ANSIC
+Xvoid addkey(char *key, int val)
+X#else
+Xaddkey(key, val)
+X	char *key;
+X
+X#endif
+X{
+X	register struct templ *p = specials;
+X
+X	while (p->rwd)
+X		if (p->rwd[0] == key[0] && strcmp(p->rwd, key) == 0)
+X			return;
+X		else
+X			p++;
+X	if (p >= specials + sizeof specials / sizeof specials[0])
+X		return;					/* For now, table overflows are silently
+X								   ignored */
+X	p->rwd = key;
+X	p->rwcode = val;
+X	p[1].rwd = 0;
+X	p[1].rwcode = 0;
+X	return;
+X}
+SHAR_EOF
+if test 15938 -ne "`wc -c lexi.c`"
+then
+echo shar: error transmitting lexi.c '(should have been 15938 characters)'
+fi
+echo shar: extracting parse.c
+sed 's/^X//' << \SHAR_EOF > parse.c
+X/*
+X * Copyright (c) 1985 Sun Microsystems, Inc.
+X * Copyright (c) 1980 The Regents of the University of California.
+X * Copyright (c) 1976 Board of Trustees of the University of Illinois.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms are permitted
+X * provided that the above copyright notice and this paragraph are
+X * duplicated in all such forms and that any documentation,
+X * advertising materials, and other materials related to such
+X * distribution and use acknowledge that the software was developed
+X * by the University of California, Berkeley, the University of Illinois,
+X * Urbana, and Sun Microsystems, Inc.  The name of either University
+X * or Sun Microsystems may not be used to endorse or promote products
+X * derived from this software without specific prior written permission.
+X * THIS SOFTWARE IS PROVIDED "AS IS" AND WITHOUT ANY EXPRESS OR
+X * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X * WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#)parse.c	5.8 (Berkeley) 88/09/15";
+X
+X#endif							/* not lint */
+X
+X#include "globals.h"
+X#include "codes.h"
+X
+X#ifdef ANSIC
+Xstatic void reduce(void);
+X
+Xvoid parse(int tk)
+X#else
+Xparse(tk)
+X	int tk;						/* the code for the construct scanned */
+X
+X#endif
+X{
+X	int i;
+X
+X#ifdef debug
+X	printf("%2d - %s\n", tk, token);
+X#endif
+X
+X	while (ps.p_stack[ps.tos] == ifhead && tk != elselit)
+X	{
+X		/* true if we have an if without an else */
+X		ps.p_stack[ps.tos] = stmt;	/* apply the if(..) stmt ::= stmt reduction */
+X		reduce();				/* see if this allows any reduction */
+X	}
+X
+X
+X	switch (tk)
+X	{							/* go on and figure out what to do with the
+X								   input */
+X
+X	case decl:					/* scanned a declaration word */
+X		ps.search_brace = btype_2 && !btype_3;
+X		/* indicate that following brace should be on same line */
+X		if (ps.p_stack[ps.tos] != decl)
+X		{						/* only put one declaration onto stack */
+X			break_comma = true;	/* while in declaration, newline should be
+X								   forced after comma */
+X			ps.p_stack[++ps.tos] = decl;
+X			ps.il[ps.tos] = ps.i_l_follow;
+X
+X			if (ps.ljust_decl)
+X			{					/* only do if we want left justified
+X								   declarations */
+X				ps.ind_level = 0;
+X				for (i = ps.tos - 1; i > 0; --i)
+X					if (ps.p_stack[i] == decl)
+X						++ps.ind_level;	/* indentation is number of declaration
+X										   levels deep we are */
+X				ps.i_l_follow = ps.ind_level;
+X			}
+X		}
+X		break;
+X
+X	case ifstmt:				/* scanned if (...) */
+X		if (ps.p_stack[ps.tos] == elsehead && ps.else_if)	/* "else if ..." */
+X			ps.i_l_follow = ps.il[ps.tos];
+X	case dolit:				/* 'do' */
+X	case forstmt:				/* for (...) */
+X		ps.p_stack[++ps.tos] = tk;
+X		ps.il[ps.tos] = ps.ind_level = ps.i_l_follow;
+X		++ps.i_l_follow;		/* subsequent statements should be indented 1 */
+X		ps.search_brace = btype_2 && !btype_3;
+X		break;
+X
+X	case lbrace:				/* scanned { */
+X		break_comma = false;	/* don't break comma in an initial list */
+X		if (ps.p_stack[ps.tos] == stmt || ps.p_stack[ps.tos] == decl
+X			|| ps.p_stack[ps.tos] == stmtl)
+X			++ps.i_l_follow;	/* it is a random, isolated stmt group or a
+X								   declaration */
+X		else
+X		{
+X			if (s_code == e_code)
+X			{
+X				/*
+X				   only do this if there is nothing on the line
+X				*/
+X				--ps.ind_level;
+X				/*
+X				   it is a group as part of a while, for, etc.
+X				*/
+X				if (ps.p_stack[ps.tos] == swstmt && ps.case_indent >= (float) 1 &&
+X					ps.case_code_indent >= (float) 1)
+X					--ps.ind_level;
+X				/*
+X				   for a switch, brace should be two levels out from the code
+X				*/
+X			}
+X		}
+X
+X		ps.p_stack[++ps.tos] = lbrace;
+X		ps.il[ps.tos] = ps.ind_level;
+X		ps.p_stack[++ps.tos] = stmt;
+X		/* allow null stmt between braces */
+X		ps.il[ps.tos] = ps.i_l_follow;
+X		break;
+X
+X	case whilestmt:			/* scanned while (...) */
+X		if (ps.p_stack[ps.tos] == dohead)
+X		{
+X			/* it is matched with do stmt */
+X			ps.ind_level = ps.i_l_follow = ps.il[ps.tos];
+X			ps.p_stack[++ps.tos] = whilestmt;
+X			ps.il[ps.tos] = ps.ind_level = ps.i_l_follow;
+X		}
+X		else
+X		{						/* it is a while loop */
+X			ps.p_stack[++ps.tos] = whilestmt;
+X			ps.il[ps.tos] = ps.i_l_follow;
+X			++ps.i_l_follow;
+X			ps.search_brace = btype_2 && !btype_3;
+X		}
+X
+X		break;
+X
+X	case elselit:				/* scanned an else */
+X
+X		if (ps.p_stack[ps.tos] != ifhead)
+X			diag(1, "Unmatched 'else'");
+X		else
+X		{
+X			ps.ind_level = ps.il[ps.tos];	/* indentation for else should be
+X											   same as for if */
+X			ps.i_l_follow = ps.ind_level + 1;	/* everything following should
+X												   be in 1 level */
+X			ps.p_stack[ps.tos] = elsehead;
+X			/* remember if with else */
+X			ps.search_brace = (btype_2 && !btype_3) | ps.else_if;
+X		}
+X		break;
+X
+X	case rbrace:				/* scanned a } */
+X		/* stack should have <lbrace> <stmt> or <lbrace> <stmtl> */
+X		if (ps.p_stack[ps.tos - 1] == lbrace)
+X		{
+X			if (btype_3)
+X				ps.i_l_follow = ps.il[--ps.tos];
+X			else
+X				ps.ind_level = ps.i_l_follow = ps.il[--ps.tos];
+X			ps.p_stack[ps.tos] = stmt;
+X		}
+X		else
+X			diag(1, "Stmt nesting error.");
+X		break;
+X
+X	case swstmt:				/* had switch (...) */
+X		ps.p_stack[++ps.tos] = swstmt;
+X		ps.cstk[ps.tos] = case_ind;
+X		/* save current case indent level */
+X		ps.il[ps.tos] = ps.i_l_follow;
+X		case_ind = ps.i_l_follow + ps.case_indent;
+X		/*
+X		   cases should be one level down from switch
+X		*/
+X		ps.i_l_follow += ps.case_indent + ps.case_code_indent;
+X		/*
+X		   statements should be two levels in
+X		*/
+X		ps.search_brace = btype_2 && !btype_3;
+X		break;
+X
+X	case semicolon:			/* this indicates a simple stmt */
+X		break_comma = false;	/* turn off flag to break after commas in a
+X								   declaration */
+X		ps.p_stack[++ps.tos] = stmt;
+X		ps.il[ps.tos] = ps.ind_level;
+X		break;
+X
+X	default:					/* this is an error */
+X		diag(1, "Unknown code to parser");
+X		return;
+X
+X
+X	}							/* end of switch */
+X
+X	reduce();					/* see if any reduction can be done */
+X
+X#ifdef debug
+X	for (i = 1; i <= ps.tos; ++i)
+X		printf("(%d %d)", ps.p_stack[i], ps.il[i]);
+X	printf("\n");
+X#endif
+X
+X	return;
+X}
+X
+X/*
+X * Copyright (C) 1976 by the Board of Trustees of the University of Illinois
+X *
+X * All rights reserved
+X *
+X *
+X * NAME: reduce
+X *
+X * FUNCTION: Implements the reduce part of the parsing algorithm
+X *
+X * ALGORITHM: The following reductions are done.  Reductions are repeated until
+X * no more are possible.
+X *
+X * Old TOS		New TOS <stmt> <stmt>	<stmtl> <stmtl> <stmt>	<stmtl> do
+X * <stmt>	"dostmt" if <stmt>	"ifstmt" switch <stmt>	<stmt> decl
+X * <stmt>	<stmt> "ifelse" <stmt>	<stmt> for <stmt>	<stmt> while
+X * <stmt>	<stmt> "dostmt" while	<stmt>
+X *
+X * On each reduction, ps.i_l_follow (the indentation for the following line) is
+X * set to the indentation level associated with the old TOS.
+X *
+X * PARAMETERS: None
+X *
+X * RETURNS: Nothing
+X *
+X * GLOBALS: ps.cstk ps.i_l_follow = ps.il ps.p_stack = ps.tos =
+X *
+X * CALLS: None
+X *
+X * CALLED BY: parse
+X *
+X * HISTORY: initial coding 	November 1976	D A Willcox of CAC
+X *
+X */
+X/*----------------------------------------------*\
+X|   REDUCTION PHASE				    |
+X\*----------------------------------------------*/
+X#ifdef ANSIC
+Xstatic void reduce(void)
+X#else
+Xreduce()
+X#endif
+X{
+X
+X	register int i;
+X
+X	for (;;)
+X	{							/* keep looping until there is nothing left to
+X								   reduce */
+X
+X		switch (ps.p_stack[ps.tos])
+X		{
+X
+X		case stmt:
+X			switch (ps.p_stack[ps.tos - 1])
+X			{
+X
+X			case stmt:
+X			case stmtl:
+X				/* stmtl stmt or stmt stmt */
+X				ps.p_stack[--ps.tos] = stmtl;
+X				break;
+X
+X			case dolit:		/* <do> <stmt> */
+X				ps.p_stack[--ps.tos] = dohead;
+X				ps.i_l_follow = ps.il[ps.tos];
+X				break;
+X
+X			case ifstmt:
+X				/* <if> <stmt> */
+X				ps.p_stack[--ps.tos] = ifhead;
+X				for (i = ps.tos - 1;
+X					 (
+X					  ps.p_stack[i] != stmt
+X					  &&
+X					  ps.p_stack[i] != stmtl
+X					  &&
+X					  ps.p_stack[i] != lbrace
+X					  );
+X					 --i);
+X				ps.i_l_follow = ps.il[i];
+X				/*
+X				   for the time being, we will assume that there is no else on
+X				   this if, and set the indentation level accordingly. If an
+X				   else is scanned, it will be fixed up later
+X				*/
+X				break;
+X
+X			case swstmt:
+X				/* <switch> <stmt> */
+X				case_ind = ps.cstk[ps.tos - 1];
+X
+X			case decl:			/* finish of a declaration */
+X			case elsehead:
+X				/* <<if> <stmt> else> <stmt> */
+X			case forstmt:
+X				/* <for> <stmt> */
+X			case whilestmt:
+X				/* <while> <stmt> */
+X				ps.p_stack[--ps.tos] = stmt;
+X				ps.i_l_follow = ps.il[ps.tos];
+X				break;
+X
+X			default:			/* <anything else> <stmt> */
+X				return;
+X
+X			}					/* end of section for <stmt> on top of stack */
+X			break;
+X
+X		case whilestmt:		/* while (...) on top */
+X			if (ps.p_stack[ps.tos - 1] == dohead)
+X			{
+X				/* it is termination of a do while */
+X				ps.p_stack[--ps.tos] = stmt;
+X				break;
+X			}
+X			else
+X				return;
+X
+X		default:				/* anything else on top */
+X			return;
+X
+X		}
+X	}
+X}
+SHAR_EOF
+if test 8654 -ne "`wc -c parse.c`"
+then
+echo shar: error transmitting parse.c '(should have been 8654 characters)'
+fi
+#	End of shell archive
+exit 0

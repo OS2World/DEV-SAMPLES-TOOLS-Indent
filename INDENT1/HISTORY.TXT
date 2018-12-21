@@ -1,0 +1,85 @@
+30-OCT-1989 13:45:35 James H. Thompson  Compuserve: [70126, 611]
+	Fixed handling of non-standard tab sizes.  This affected
+	mostly the way comments were formated.  Also changed
+	to compile with the Large model - no reason
+	other than I compile all my C programs this way.
+
+	This is not an exact sibling of Bruce's Oct 25 version,
+	I had already made most of these fixes when I got
+	his updates.  I have verified there are no collisions
+	and merged his all of his changes except the stack overflow
+	fix which I perferred to fix by just linking with a bigger
+	stack.
+
+	The file "files.dif" contains a listing of the differences
+	between this version and Bruce's Oct 25 version.
+
+	Since all I have is Microsoft make...
+	The command line "make indent.mak > make.err" was used
+	to compile with Microsoft make and MSC version 5.1.
+
+
+October 25, 1989	Bruce A. Mallett
+	Fixed stack overflow problem (again).  This time incorporated
+	Charles Fleisher's fix, which is to malloc() a buffer in the
+	bakcopy() routine rather than to have it allocated on the
+	stack.
+
+	Increased code, label, comment, and token buffer sizes.
+	Indent can now indent itself!
+
+
+August 2, 1989		Bruce A. Mallett
+	Fixed stack overflow problem (reported by Charles Fleisher)
+	by allocating a 12kb stack via a linker switch in makefile.
+
+	Fixed creation of backup file.  It was just appending a
+	".BAK" extension.  For MS-Dos it will now substitute the
+	current extension with ".BAK".
+
+
+June 1, 1989 and earlier	Bruce A. Mallett
+
+Made changes to indent to make it work with MS-Dos:
+
+  Shortened file names.
+
+  Changed makefile to work with ndmake
+
+  #ifdef around include of <sys/param.h>.  This does not exist for
+  MSC system, so I put what is needed in MSDOS.H
+
+  Integrated my "config.h" and "typedefs.h" routines to try to back
+  away from machine and compiler dependencies.
+
+  Changed definition of allcaps in the "struct fstate" definition to
+  be a "bit" (from "typedefs.h").
+
+  Changed all "blanklines" (plural)  to "bl" to shorten variable names
+
+  Changed all "blankline" (singular) to "bl" to shorten variable names
+
+  Changed all "_declarations" to "dcl" to shorten variable names
+
+  Declared the "msg" parameter on the diag() routine in io.c to keep
+    parameter checking in MSC happy.
+
+  Added -tabs switch to args.c table.
+
+  Changed "tabsize" to be an integer rather than a #define.
+
+  Deleted tabmask and replaced with computations involving tabsize.
+
+  Added PROFILE_NAME to globs.h.  This names the indent profile file
+  (which differs from MS-Dos to unix).
+
+  Changed the way set_profile (args.c) looked for the profile file. 
+  Now if the HOME environment is not defined it looks in root.
+
+  Fixed problem in indent.c in which it became confused as to what
+  was or was not a comment.  This was do to a bad test on sc_end.
+
+
+
+Known bugs:
+

@@ -1,0 +1,49 @@
+# Copyright (c) 1987 Regents of the University of California.
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms are permitted
+# provided that the above copyright notice and this paragraph are
+# duplicated in all such forms and that any documentation,
+# advertising materials, and other materials related to such
+# distribution and use acknowledge that the software was developed
+# by the University of California, Berkeley.  The name of the
+# University may not be used to endorse or promote products derived
+# from this software without specific prior written permission.
+# THIS SOFTWARE IS PROVIDED "AS IS" AND WITHOUT ANY EXPRESS OR
+# IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+# WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+#
+#	@(#)Makefile	5.9 (Berkeley) 88/09/15
+#
+#
+# Makefile for OS/2 2.0 by Jon Saxton, February 1992
+# Amended for C Set/2 by Jon Saxton, April 1992
+
+CFLAGS=	-c -DMAXPATHLEN=256 -G3 -W3 -DANSIC -DMSDOS -dM_I386 -Sm
+CC=	icc
+LN=	link386
+LIBC=
+SRCS=	indent.c io.c lexi.c parse.c comment.c args.c
+H=	codes.h globals.h proto.h
+OBJS=	indent.obj io.obj lexi.obj parse.obj comment.obj args.obj
+OBS=	indent+io+lexi+parse+comment+args
+
+.c.obj:
+	$(CC) $(CFLAGS) $*.c
+
+all: indent.exe
+
+indent.exe: $(OBJS)
+	$(LN) $(OBS),$@,nul,,indent.def
+
+indent.obj:	indent.c $H
+
+io.obj:		io.c globals.h proto.h
+
+lexi.obj:	lexi.c $H
+
+parse.obj:	parse.c $H
+
+comment.obj:	comment.c globals.h proto.h
+
+args.obj:	args.c globals.h proto.h
